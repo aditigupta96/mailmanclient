@@ -336,7 +336,7 @@ class PreferencesMixin:
 class Page:
 
     def __init__(self, connection, path, model, count=DEFAULT_PAGE_ITEM_COUNT,
-                 page=1):
+                 page=1, content=None):
         self._connection = connection
         self._path = path
         self._count = count
@@ -344,7 +344,7 @@ class Page:
         self._model = model
         self._entries = []
         self.total_size = 0
-        self._create_page()
+        self._create_page(content)
 
     def __getitem__(self, key):
         return self._entries[key]
@@ -367,9 +367,11 @@ class Page:
         url[3] = urlencode(qs, doseq=True)
         return urlunsplit(url)
 
-    def _create_page(self):
+    def _create_page(self, content):
         self._entries = []
-        response, content = self._connection.call(self._build_url())
+        if content is None:
+            response, content = self._connection.call(self._build_url())
+
         self.total_size = content["total_size"]
         for entry in content.get('entries', []):
             instance = self._model(
@@ -721,6 +723,29 @@ class MailingList(RESTObject):
                     for entry in content['entries']]
         else:
             return Page(self._connection, url, Member, count, page)
+
+    def find_members_by_list(self, address_list, role='member', page=None, count=50):
+        contents = {}
+        for address in address_list:
+            data = {
+                'subscriber': address,
+                'role': role,
+                'list_id': self.list_id,
+                }
+            url = 'members/find?{}'.format(urlencode(data, doseq=True))
+
+            if not contents:
+                response, contents =  self._connection.call(url, data)
+                if 'entries' not in contents:
+                    return []
+            else:
+                response, content = self._connection.call(url, data)
+                if 'entries' in content:
+                    contents['entries'].extend(content['entries'])
+                if 'total_size' in content:
+                    contents["total_size"] += content["total_size"]
+        #print contents['entries']
+        return Page(self._connection, url, Member, count, page, contents)
 
     @property
     def settings(self):
